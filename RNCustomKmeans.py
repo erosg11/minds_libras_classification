@@ -13,7 +13,7 @@ from skopt import BayesSearchCV
 from sklearn.base import clone
 from KerasCustomModel import KerasCustomModel
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, BatchNormalization, ReLU, Softmax, Activation, ELU, LeakyReLU, Input
+from tensorflow.keras.layers import Dense, BatchNormalization, ReLU, Softmax, Activation, ELU, LeakyReLU, Input, Dropout
 from tensorflow.keras.activations import selu, sigmoid
 from tensorflow.keras.optimizers import SGD, Adam, RMSprop
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
@@ -41,7 +41,7 @@ sys.stdout = BufferToLogger('INFO', BASE_REGEX, real_stdout)
 sys.stderr = BufferToLogger('INFO', BASE_REGEX, real_stderr)
 
 BATCH_SIZE = 128
-EPOCHS = 1000
+EPOCHS = 5000
 MULTI_GPU = True
 
 
@@ -94,6 +94,7 @@ def create_mlp_model(
         rmsprop_ema_momentum=0.99,
         rmsprop_ema_overwrite_frequency=100,
         data_features=0,
+        dropout=0.0,
 ):
     clear_session()
     if MULTI_GPU:
@@ -180,7 +181,7 @@ def create_mlp_model(
             raise KeyError(f"Otimizador {optimizer} inválido!")
 
         if batch_normalization:
-            bn = BatchNormalization()
+            bn = lambda x_: BatchNormalization()(x_)
         else:
             bn = lambda x_: x_
 
@@ -188,6 +189,7 @@ def create_mlp_model(
         x = inputs
         for _ in range(hidden_layers):
             x = Dense(units=units, activation=activation_layer)(x)
+            x = Dropout(rate=dropout)(x)
             x = bn(x)
         outputs = Dense(n_classes, activation=out_activation_layer)(x)
         model = Model(inputs=inputs, outputs=outputs)
@@ -243,6 +245,7 @@ def fit_model():
             rmsprop_rho=0.9,
             rmsprop_epsilon=1e-07,
             rmsprop_centered=False,
+            dropout=0.0,
         ),
         {
             'estimator': Categorical([KerasCustomModel]),
@@ -264,8 +267,8 @@ def fit_model():
             'reduce_lro_plateau_cooldown': Integer(0, 100),
             'reduce_lro_plateau_min_lr': Real(0, 1 - 1e-10),
             'verbose': Categorical([2]),
-            'units': Integer(1, 1000),
-            'hidden_layers': Integer(0, 100),
+            'units': Integer(1, 7200),
+            'hidden_layers': Integer(0, 20),
             'activation': Categorical(['relu', 'elu', 'selu', 'leaky_relu']),
             # 'negative_slope_relu': Real(0, 1e3),
             # 'max_value_relu': Real(0, 1e3),
@@ -289,6 +292,7 @@ def fit_model():
             'rmsprop_epsilon': Real(1e-15, 0.3),
             'rmsprop_centered': Categorical([True, False]),
             'data_features': Categorical([features]),
+            'dropout': Real(0, 0.5),
         },
         n_iter=150,
         random_state=42,

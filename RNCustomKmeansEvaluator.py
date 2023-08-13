@@ -183,9 +183,10 @@ if __name__ == '__main__':
 
     # In[10]:
 
-    start_train_score = time()
 
     estimator.fit(stacked_train_landmarks, y_train)
+
+    start_train_score = time()
 
     train_score = estimator.score(stacked_train_landmarks, y_train)
     test_score = estimator.score(stacked_test_landmarks, y_test)
@@ -194,8 +195,12 @@ if __name__ == '__main__':
 
     # In[11]:
 
-    logger.info('Acurácia de treino: {}\nAcurácia de teste: {}\nTempo para treino e teste: {}', train_score, test_score,
-                end_train_score - start_train_score)
+    delta = end_train_score - start_train_score
+
+    logger.info('Acurácia de treino: {}\nAcurácia de teste: {}\nTempo para avaliar treino e teste: {}, média de {}'
+                ' vídeos/s',
+                train_score, test_score,
+                delta, delta / (len(stacked_train_landmarks) + len(stacked_test_landmarks)))
 
     # In[13]:
     dump(estimator, OUT_PATH / f'Models/{model_name}.h5', compress=9)

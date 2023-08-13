@@ -6,6 +6,8 @@ from tensorflow.keras.callbacks import TensorBoard, EarlyStopping, ModelCheckpoi
 from sklearn.base import BaseEstimator, ClassifierMixin
 from loguru import logger
 
+from tools import OUT_PATH
+
 
 class KerasCustomModel(BaseEstimator, ClassifierMixin):
 
@@ -73,7 +75,7 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
             if tensorboard_log_dir_format:
                 tensorboard_dir = tensorboard_log_dir_format.format(datetime=datetime.now())
             else:
-                tensorboard_dir = f'logs_{datetime.now():%Y%m%d%H%M%S}'
+                tensorboard_dir = OUT_PATH / f'logs_{datetime.now():%Y%m%d%H%M%S}'
             if tensorboard_params is None:
                 tensorboard_params = {}
             tensorboard_params['log_dir'] = tensorboard_dir
@@ -87,8 +89,8 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
             if model_checkpoint_format:
                 model_checkpoint_format = model_checkpoint_format
             else:
-                model_checkpoint_format = \
-                    f'Outs/weights/weights.{datetime.now():%Y%m%d%H%M%S}.{{epoch:02d}}-{{val_loss:.2f}}.hdf5'
+                model_checkpoint_format = OUT_PATH / \
+                    f'weights/weights.{datetime.now():%Y%m%d%H%M%S}.{{epoch:02d}}-{{val_loss:.2f}}.hdf5'
             if model_checkpoint_params is None:
                 model_checkpoint_params = {}
             model_checkpoint_params['filepath'] = model_checkpoint_format
@@ -160,3 +162,21 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
 
     def score(self, X, y, sample_weight=None):
         return self.model.evaluate(X, y, self.batch_size, verbose=self.verbose, sample_weight=sample_weight)[1]
+
+    def __reduce_ex__(self, protocol):
+        filepath = OUT_PATH / 'weigths'
+        filepath.mkdir(exist_ok=True, parents=True)
+        filepath /= f'{datetime.utcnow():%Y%m%d%H%M%S.h5}'
+        self.model.save(filepath)
+        return _keras_custom_from_file, (self.get_params(), self.history_list, filepath)
+
+    def __reduce__(self):
+        from pickle import DEFAULT_PROTOCOL
+        return self.__reduce_ex__(DEFAULT_PROTOCOL)
+
+
+def _keras_custom_from_file(params, history_list, weights_filename):
+    estimator = KerasCustomModel(**params)
+    estimator.history_list = history_list
+    estimator.model.load_weights(weights_filename)
+    return estimator

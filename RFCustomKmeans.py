@@ -52,7 +52,7 @@ logger.info("Iniciado com os landmarks tendo o formato {}.", landmarks.shape)
 
 observations = reduce(mul, landmarks.shape[1:])
 
-stacked_train_landmarks = [landmarks[video_id == i].reshape((-1, observations))  for i in train_idx]
+stacked_train_landmarks = [landmarks[video_id == i].reshape((-1, observations)) for i in train_idx]
 stacked_test_landmarks = [landmarks[video_id == i].reshape((-1, observations)) for i in test_idx]
 
 classes = meta_df['pose_id'].values
@@ -65,7 +65,8 @@ logger.info("Alterado para ter {} observações.", observations)
 # In[6]:
 
 
-logger.debug("Checagem de integridade {} + {} = {} = {}", len(y_train), len(y_test), len(y_train) + len(y_test), len(classes))
+logger.debug("Checagem de integridade {} + {} = {} = {}", len(y_train), len(y_test), len(y_train) + len(y_test),
+             len(classes))
 
 # In[7]:
 
@@ -146,7 +147,8 @@ end_train_score = time()
 # In[11]:
 
 
-logger.info('Acurácia de treino: {}\nAcurácia de teste: {}\nTempo para treino e teste: {}', train_score, test_score, end_train_score-start_train_score)
+logger.info('Acurácia de treino: {}\nAcurácia de teste: {}\nTempo para treino e teste: {}', train_score, test_score,
+            end_train_score-start_train_score)
 
 
 
