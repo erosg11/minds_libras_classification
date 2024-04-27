@@ -1,8 +1,12 @@
 import pandas as pd
 from pathlib import Path
+from dotenv import load_dotenv
+from os import getenv
 
-BASE_PATH = Path('/media/eros/BackupMae/datasets/Minds')
-OUT_PATH = Path('./Outs')
+load_dotenv()
+
+BASE_PATH = Path(getenv('VIDEO_ROOT'))
+OUT_PATH = Path(getenv('OUT_FOLDER'))
 
 def open_meta_df():
     return pd.read_csv(OUT_PATH / 'dataset_metadata.csv.gz', 

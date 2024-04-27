@@ -12,9 +12,10 @@ import numpy as np
 from skopt import BayesSearchCV
 from sklearn.base import clone
 from KerasCustomModel import KerasCustomModel
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, BatchNormalization, ReLU, Softmax, Activation, ELU, LeakyReLU, Input, Dropout
-from tensorflow.keras.activations import selu, sigmoid
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.layers import (Dense, BatchNormalization, ReLU, Softmax, Activation, ELU, LeakyReLU, Input,
+                                     Dropout, LSTM)
+from tensorflow.keras.activations import selu, sigmoid, tanh
 from tensorflow.keras.optimizers import SGD, Adam, RMSprop
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.backend import clear_session
@@ -45,11 +46,53 @@ EPOCHS = 5000
 MULTI_GPU = True
 
 
-def create_mlp_model(
+def get_relu(max_value_relu, negative_slope_relu, threshold_relu, **_):
+    return ReLU(max_value_relu, negative_slope_relu, threshold_relu)
+
+def get_elu(elu_alpha, **_):
+    return ELU(elu_alpha)
+
+def get_leaky_relu(leaky_relu_alpha, **_):
+    return LeakyReLU(leaky_relu_alpha)
+
+def get_selu(**_):
+    return Activation(selu)
+
+def get_tanh(**_):
+    return Activation(tanh)
+
+def get_sigmoid(**_):
+    return Activation(sigmoid)
+
+def get_softmax(**_):
+    return Softmax()
+
+
+activation_function = {
+    'relu': get_relu,
+    'elu': get_elu,
+    'leaky_relu': get_leaky_relu,
+    'selu': get_selu,
+    'tanh': get_tanh,
+    'sigmoid': get_sigmoid,
+    'softmax': get_softmax
+}
+
+def get_activation_func(activation, params):
+    try:
+        activation_function[activation](**params)
+    except KeyError:
+        raise KeyError(f"Ativação {activation} inválida!")
+
+
+def create_lstm_model(
         units=64,
         hidden_layers=5,
+        batch_size=5,
         n_clusters=5,
+        use_two_dimensions=False,
         activation='relu',
+        recurrent_activation='relu',
         negative_slope_relu=0.,
         max_value_relu=None,
         threshold_relu=0.,
@@ -95,7 +138,10 @@ def create_mlp_model(
         rmsprop_ema_overwrite_frequency=100,
         data_features=0,
         dropout=0.0,
-):
+        use_bias=True,
+        stateful=False,
+        recurrent_dropout=0
+    ):
     clear_session()
     if MULTI_GPU:
         try:
@@ -115,24 +161,15 @@ def create_mlp_model(
     else:
         from contextlib import nullcontext
         context = nullcontext
-    with context():
-        if activation == 'relu':
-            activation_layer = ReLU(max_value_relu, negative_slope_relu, threshold_relu)
-        elif activation == 'elu':
-            activation_layer = ELU(elu_alpha)
-        elif activation == 'leaky_relu':
-            activation_layer = LeakyReLU(leaky_relu_alpha)
-        elif activation == 'selu':
-            activation_layer = Activation(selu)
-        else:
-            raise KeyError(f"Ativação {activation} inválida!")
-
-        if out_activation == 'sigmoid':
-            out_activation_layer = Activation(sigmoid)
-        elif out_activation == 'softmax':
-            out_activation_layer = Softmax()
-        else:
-            raise KeyError(f"Ativação de saída {out_activation} inválida!")
+    with (context()):
+        activation_layer = get_activation_func(activation, {
+            'negative_slope_relu': negative_slope_relu,
+            'max_value_relu': max_value_relu,
+            'threshold_relu': threshold_relu,
+            'elu_alpha': elu_alpha,
+            'leaky_relu_alpha': leaky_relu_alpha,
+        })
+        out_activation_layer = get_activation_func(out_activation, {})
 
         if optimizer == 'adam':
             optimizer_model = Adam(
@@ -185,13 +222,38 @@ def create_mlp_model(
         else:
             bn = lambda x_: x_
 
-        inputs = Input(shape=(n_clusters * data_features,))
+        batch_shape = (batch_size, n_clusters, data_features) if use_two_dimensions else \
+            (batch_size, n_clusters * data_features,)
+
+        logger.debug('Definido batch_shape para {}', batch_shape)
+
+        inputs = Input(batch_shape=batch_shape)
+
         x = inputs
-        for _ in range(hidden_layers):
-            x = Dense(units=units, activation=activation_layer)(x)
-            if dropout:
-                x = Dropout(rate=dropout)(x)
+        for _ in range(hidden_layers - 1):
+            x = LSTM(
+                units=units,
+                activation=activation_layer,
+                recurrent_activation=recurrent_activation,
+                use_bias=use_bias,
+                dropout=dropout,
+                recurrent_dropout=recurrent_dropout,
+                return_sequences=True,
+                stateful=stateful
+            )(x)
             x = bn(x)
+
+        x = LSTM(
+            units=units,
+            activation=activation_layer,
+            recurrent_activation=recurrent_activation,
+            use_bias=use_bias,
+            dropout=dropout,
+            recurrent_dropout=recurrent_dropout,
+            return_sequences=False,
+            stateful=stateful
+        )(x)
+        x = bn(x)
         outputs = Dense(n_classes, activation=out_activation_layer)(x)
         model = Model(inputs=inputs, outputs=outputs)
         model.compile(optimizer_model, loss=SparseCategoricalCrossentropy(), metrics=['accuracy'])
@@ -204,12 +266,13 @@ def fit_model():
     opt = BayesSearchCV(
         KMeansCustomEstimator(
             KerasCustomModel,
-            two_dimensions=False,
+            two_dimensions=True,
             kmeans_keys=kmeans_keys,
             estimator_keys=estimator_keys,
             n_clusters=8,
-            model_generator=create_mlp_model,
+            model_generator=create_lstm_model,
             batch_size=BATCH_SIZE,
+            use_two_dimensions=True,
             epochs=EPOCHS,
             early_stopping=True,
             early_stopping_min_delta=0,
@@ -248,16 +311,22 @@ def fit_model():
             rmsprop_centered=False,
             data_features=features,
             dropout=0.0,
+            recurrent_activation='relu',
+            use_bias=True,
+            stateful=False,
+            recurrent_dropout=0.0,
         ),
         {
             'estimator': Categorical([KerasCustomModel]),
-            'two_dimensions': Categorical([False]),
+            'two_dimensions': Categorical([True]),
             'kmeans_keys': Categorical([kmeans_keys]),
             'estimator_keys': Categorical([estimator_keys]),
             'n_clusters': Integer(1, shortest_video - 1),
-            'model_generator': Categorical([create_mlp_model]),
+            'use_two_dimensions': Categorical([True]),
+            'model_generator': Categorical([create_lstm_model]),
             'batch_size': Integer(5, BATCH_SIZE),
             'epochs': Integer(5, EPOCHS),
+            # 'epochs': Integer(2, 3),
             'early_stopping': Categorical([True, False]),
             'early_stopping_min_delta': Real(0, 100),
             'early_stopping_patience': Integer(0, 100),
@@ -269,9 +338,9 @@ def fit_model():
             'reduce_lro_plateau_cooldown': Integer(0, 100),
             'reduce_lro_plateau_min_lr': Real(0, 1 - 1e-10),
             'verbose': Categorical([2]),
-            'units': Integer(1, 7200),
-            'hidden_layers': Integer(0, 20),
-            'activation': Categorical(['relu', 'elu', 'selu', 'leaky_relu']),
+            'units': Integer(1, 256),
+            'hidden_layers': Integer(1, 10),
+            'activation': Categorical(['relu', 'elu', 'selu', 'leaky_relu', 'tanh']),
             # 'negative_slope_relu': Real(0, 1e3),
             # 'max_value_relu': Real(0, 1e3),
             # 'threshold_relu': Real(0, 1e3),
@@ -295,6 +364,10 @@ def fit_model():
             'rmsprop_centered': Categorical([True, False]),
             'data_features': Categorical([features]),
             'dropout': Real(0, 0.5),
+            'recurrent_activation': Categorical(['relu', 'elu', 'selu', 'leaky_relu', 'tanh']),
+            'use_bias': Categorical([True, False]),
+            'stateful': Categorical([True, False]),
+            'recurrent_dropout': Real(0, 0.5),
         },
         n_iter=150,
         random_state=42,
@@ -310,7 +383,7 @@ def fit_model():
 
 if __name__ == '__main__':
 
-    model_name = 'RN'
+    model_name = 'LSTM'
     logger.add(f"model_{model_name}_{{time}}.log")
 
     # In[3]:
@@ -360,6 +433,7 @@ if __name__ == '__main__':
         'model_generator',
         'batch_size',
         'epochs',
+        'use_two_dimensions',
         'early_stopping',
         'early_stopping_min_delta',
         'early_stopping_patience',
@@ -397,6 +471,10 @@ if __name__ == '__main__':
         'rmsprop_centered',
         'data_features',
         'dropout',
+        'recurrent_activation',
+        'use_bias',
+        'stateful',
+        'recurrent_dropout',
     ])
 
     opt = fit_model()

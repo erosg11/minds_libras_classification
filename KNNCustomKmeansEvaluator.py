@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
     logger.info('Acurácia de treino: {}\nAcurácia de teste: {}\nTempo para avaliar treino e teste: {}, média de {}'
                 ' vídeos/s',
-                train_score, test_score,
+            train_score, test_score,
                 delta, delta / (len(stacked_train_landmarks) + len(stacked_test_landmarks)))
 
     # In[13]:

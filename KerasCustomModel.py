@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Optional, Union, Callable
 
+import numpy as np
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.callbacks import TensorBoard, EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import train_test_split
 from loguru import logger
 
 from tools import OUT_PATH
@@ -43,7 +45,7 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
         self.model_generator = model_generator
         self.model_generator_params = model_generator_params
         if self.model_generator:
-            self.model = self.model_generator(**self.model_generator_params)
+            self.model = self.model_generator(**self.model_generator_params, batch_size=batch_size)
         else:
             self.model = None
         self.history_list = []
@@ -117,6 +119,10 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
             self.model_fit_params = {}
         else:
             self.model_fit_params = model_fit_params
+        if self.model_generator_params.get('stateful'):
+            self.fit = self.fit_reset
+        else:
+            self.fit = self.fit_reset
         self.verbose = verbose
 
     def get_params(self, deep=False):
@@ -152,10 +158,35 @@ class KerasCustomModel(BaseEstimator, ClassifierMixin):
         self.__init__(**final_params)
         return self
 
-    def fit(self, x, y):
+    def fit_reset(self, x, y):
+        l_y = len(y)
+        buckets = int(l_y / self.batch_size)
+        total_size = buckets * self.batch_size
+        val_size = (int(buckets * self.validation_split) * self.batch_size) or self.batch_size
+        desprezado = l_y - total_size
+        samples_train = total_size - val_size
+        logger.debug('Executando fit_reset, utilizando {} amostras, desprezando {} amostras, validando com {} amostras',
+                     samples_train, desprezado, val_size)
+        for _ in range(self.epochs):
+            indexes = np.random.choice(np.arange(l_y),  total_size, replace=False)
+            train_idx, val_idx = train_test_split(indexes, train_size=samples_train, shuffle=True)
+            train_x = x[train_idx]
+            train_y = y[train_idx]
+            val_x = x[val_idx]
+            val_y = y[val_idx]
+            # TODO: Ver como adicionar o callbacks
+            self.append_history(
+                self.model.fit(train_x, train_y, self.batch_size, 1, verbose=self.verbose,
+                               validation_data=(val_x, val_y), **self.model_fit_params))
+            self.model.reset_states()
+
+    def fit_normal(self, x, y):
         self.append_history(
             self.model.fit(x, y, self.batch_size, self.epochs, verbose=self.verbose, callbacks=self.callbacks,
                            validation_split=self.validation_split, **self.model_fit_params))
+
+    def fit(self, x, y):
+        pass
 
     def predict(self, x):
         return self.model.predict(x, self.batch_size, self.verbose)
