@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 from os import getenv
+import numpy as np
 
 load_dotenv()
 
@@ -18,3 +19,5 @@ def open_meta_df():
                           'sinalizador': 'int64',
                           'repetition': 'int64',
                       }, index_col=0)
+
+USE_POINTS = np.array([int(x) for x in getenv('USE_POINTS').split(',')]) if getenv('USE_POINTS') else np.arange(33)

@@ -5,6 +5,7 @@
 from datetime import datetime
 from time import time
 
+from KMeansInterpolateCustomEstimator import KMeansInterpolateCustomEstimator
 from tools import OUT_PATH, open_meta_df
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -22,6 +23,28 @@ from loguru import logger
 
 filterwarnings("ignore")
 
+
+
+CUDA = False
+
+if CUDA:
+    from cuml.ensemble import RandomForestClassifier
+
+    estimator_keys_0 = [
+        'split_criterion',
+        'max_leaves',
+        'n_bins',
+        'output_type',
+    ]
+else:
+    from sklearn.ensemble import RandomForestClassifier
+
+    estimator_keys_0 = [
+        'criterion',
+        'max_leaf_nodes',
+        'n_jobs',
+    ]
+
 real_stdout = sys.stdout
 real_stderr = sys.stderr
 
@@ -31,7 +54,7 @@ sys.stdout = BufferToLogger('INFO', BASE_REGEX, real_stdout)
 sys.stderr = BufferToLogger('INFO', BASE_REGEX, real_stderr)
 
 if __name__ == '__main__':
-    model_name = 'RF_Eval'
+    model_name = 'RF_Interpolate_Eval'
     logger.add(f"model_{model_name}_{{time}}.log")
 
     # In[3]:
@@ -70,32 +93,40 @@ if __name__ == '__main__':
     kmeans_keys = frozenset(['n_clusters'])
 
     estimator_keys = frozenset([
-        'bootstrap',
-        'max_depth',
-        'max_features',
-        'min_samples_leaf',
-        'min_samples_split',
-        'n_estimators',
-        "n_jobs",
-    ])
+                                   'n_estimators',
+                                   'max_depth',
+                                   'min_samples_split',
+                                   'min_samples_leaf',
+                                   'bootstrap',
+                                   'max_features',
+                               ] + estimator_keys_0)
 
     # In[9]:
 
-    estimator = KMeansCustomEstimator(
-        RandomForestClassifier,
+    estimator = KMeansInterpolateCustomEstimator(
+        **{**dict(interpolation_ratio=1,
+        estimator=RandomForestClassifier,
         two_dimensions=False,
         kmeans_keys=kmeans_keys,
         estimator_keys=estimator_keys,
-        n_clusters=70,
-        weights='uniform',
-        bootstrap=False,
-        max_depth=None,
-        max_features='sqrt',
-        min_samples_leaf=1,
-        min_samples_split=2,
-        n_estimators=18785,
         n_jobs=-1,
-    )  # type: KMeansCustomEstimator
+        cuda=CUDA),
+           **dict([
+               ('bootstrap', False),
+               ('criterion', 'entropy'),
+               ('feature_selector_model', 'bypass'),
+               ('features_selected', 56),
+               ('interpolation_kind', 'next'),
+               ('interpolation_ratio', 3.3468721432271575),
+               ('max_depth', 40836),
+               ('max_features', 0.01),
+               ('max_leaf_nodes', 100),
+               ('max_samples', 0.9879238804427334),
+               ('min_samples_leaf', 1),
+               ('min_samples_split', 2),
+               ('n_clusters', 58),
+               ('n_estimators', 20000)])},
+    )
 
     # In[10]:
 
